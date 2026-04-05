@@ -1,20 +1,8 @@
 #!/bin/bash
-# world-save.sh - Save world to Google Drive via rclone
+# world-save.sh - Save world to Google Drive
 
 echo "[WORLD] Saving world..."
-
-# Write service account key from env var
 echo "$GDRIVE_SERVICE_ACCOUNT_JSON" > /tmp/sa-key.json
-
-# Create rclone config
-mkdir -p ~/.config/rclone
-cat > ~/.config/rclone/rclone.conf << EOF
-[gdrive]
-type = drive
-scope = drive
-service_account_file = /tmp/sa-key.json
-root_folder_id = ${GDRIVE_FOLDER_ID}
-EOF
 
 # Tar the world folders
 cd server-run
@@ -23,11 +11,11 @@ tar czf /tmp/world.tar.gz world/ 2>/dev/null
 cd ..
 
 FILESIZE=$(stat -c%s /tmp/world.tar.gz 2>/dev/null || echo "0")
-echo "[WORLD] World archive size: $((FILESIZE / 1024 / 1024)) MB"
+echo "[WORLD] World archive: $((FILESIZE / 1024 / 1024)) MB"
 
-# Upload to Google Drive (overwrites existing)
+# Upload (UPDATES existing file, keeps user's ownership = no quota issue)
 echo "[WORLD] Uploading to Google Drive..."
-rclone copy /tmp/world.tar.gz gdrive: --progress
+python3 scripts/gdrive.py upload /tmp/world.tar.gz
 
-echo "[WORLD] World saved to Google Drive!"
 rm -f /tmp/world.tar.gz
+echo "[WORLD] World saved!"

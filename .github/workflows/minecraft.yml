@@ -38,9 +38,9 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Install rclone
+      - name: Install Google Drive SDK
         run: |
-          curl https://rclone.org/install.sh | sudo bash
+          pip install -q google-api-python-client google-auth
 
       - name: Send starting notification
         run: |
