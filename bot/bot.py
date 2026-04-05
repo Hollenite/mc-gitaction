@@ -16,7 +16,6 @@ PLAYIT_ADDRESS = os.environ.get("PLAYIT_ADDRESS", "wiring-funding.gl.joinmc.link
 
 # ─── Bot Setup ─────────────────────────────────────────────
 intents = discord.Intents.default()
-intents.message_content = True
 
 
 class MCBot(discord.Client):
