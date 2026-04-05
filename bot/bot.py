@@ -12,7 +12,7 @@ GITHUB_TOKEN = os.environ.get("GH_PAT", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "Hollenite/mc-gitaction")
 GUILD_ID = int(os.environ.get("DISCORD_GUILD_ID", "0"))
 CHANNEL_ID = int(os.environ.get("DISCORD_CHANNEL_ID", "0"))
-PLAYIT_ADDRESS = os.environ.get("PLAYIT_ADDRESS", "Check playit.gg dashboard")
+PLAYIT_ADDRESS = os.environ.get("PLAYIT_ADDRESS", "wiring-funding.gl.joinmc.link")
 
 # ─── Bot Setup ─────────────────────────────────────────────
 intents = discord.Intents.default()
