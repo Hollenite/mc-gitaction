@@ -14,15 +14,19 @@ type = drive
 scope = drive
 service_account_file = /tmp/sa-key.json
 root_folder_id = ${GDRIVE_FOLDER_ID}
+team_drive =
 EOF
 
 echo "[WORLD] Checking for world backup on Google Drive..."
 
+# List files in drive folder
+rclone ls gdrive: 2>/dev/null | head -5
+
 # Check if world.tar.gz exists on drive
-if rclone ls gdrive: --include "world.tar.gz" 2>/dev/null | grep -q "world.tar.gz"; then
+if rclone lsf gdrive: 2>/dev/null | grep -q "world.tar.gz"; then
     echo "[WORLD] Found world backup, downloading..."
-    rclone copy gdrive:world.tar.gz /tmp/ --progress
-    
+    rclone copy gdrive:world.tar.gz /tmp/ --progress --drive-acknowledge-abuse
+
     if [ -f /tmp/world.tar.gz ] && [ $(stat -c%s /tmp/world.tar.gz) -gt 1000 ]; then
         echo "[WORLD] Extracting world..."
         cd server-run
@@ -30,6 +34,7 @@ if rclone ls gdrive: --include "world.tar.gz" 2>/dev/null | grep -q "world.tar.g
         cd ..
         rm /tmp/world.tar.gz
         echo "[WORLD] World loaded successfully!"
+        ls -la server-run/world/ 2>/dev/null | head -5
     else
         echo "[WORLD] Download failed or file too small, starting fresh."
     fi
