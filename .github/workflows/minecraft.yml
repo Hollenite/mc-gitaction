@@ -24,6 +24,8 @@ jobs:
       DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       PLAYIT_SECRET: ${{ secrets.PLAYIT_SECRET }}
+      GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+      GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
       REPO: ${{ github.repository }}
 
     steps:
@@ -35,6 +37,10 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+
+      - name: Install rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
 
       - name: Send starting notification
         run: |
@@ -52,7 +58,7 @@ jobs:
           cp server/bukkit.yml server-run/
           cp server/spigot.yml server-run/
 
-      - name: Download world from GitHub Release
+      - name: Download world from Google Drive
         run: |
           chmod +x scripts/world-load.sh
           bash scripts/world-load.sh
@@ -61,7 +67,6 @@ jobs:
         run: |
           curl -L -o playit "https://github.com/playit-cloud/playit-agent/releases/download/v0.17.1/playit-linux-amd64"
           chmod +x playit
-          # Start playit in background
           ./playit --secret "$PLAYIT_SECRET" &
           echo $! > /tmp/playit.pid
           sleep 10
@@ -74,7 +79,6 @@ jobs:
 
           cd server-run
 
-          # Start Paper server in background
           java -Xms512M -Xmx5G \
             -XX:+UseG1GC \
             -XX:+ParallelRefProcEnabled \
@@ -118,13 +122,11 @@ jobs:
         if: always()
         run: |
           chmod +x scripts/world-save.sh scripts/notify.sh
-          # Try to stop server gracefully
           if [ -f /tmp/mc.pid ] && kill -0 $(cat /tmp/mc.pid) 2>/dev/null; then
             echo "Stopping server gracefully..."
-            # Send stop command via RCON or just kill
             kill $(cat /tmp/mc.pid) 2>/dev/null
             sleep 10
           fi
           bash scripts/world-save.sh
           source scripts/notify.sh
-          send_embed "🔴 Server Stopped" "World has been saved. Use /start to play again." 16711680
+          send_embed "🔴 Server Stopped" "World has been saved to Google Drive.\nUse **/start** to play again." 16711680

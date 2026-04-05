@@ -1,30 +1,38 @@
 #!/bin/bash
-# world-load.sh - Download world from GitHub Release
+# world-load.sh - Download world from Google Drive via rclone
 
-echo "[WORLD] Checking for world backup..."
+echo "[WORLD] Setting up rclone for Google Drive..."
 
-# Try to download from the latest release tagged 'world-backup'
-RELEASE_INFO=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-    "https://api.github.com/repos/${REPO}/releases/tags/world-backup")
+# Write service account key from env var
+echo "$GDRIVE_SERVICE_ACCOUNT_JSON" > /tmp/sa-key.json
 
-ASSET_URL=$(echo "$RELEASE_INFO" | grep -oP '"browser_download_url":\s*"\K[^"]+world\.tar\.gz')
+# Create rclone config
+mkdir -p ~/.config/rclone
+cat > ~/.config/rclone/rclone.conf << EOF
+[gdrive]
+type = drive
+scope = drive
+service_account_file = /tmp/sa-key.json
+root_folder_id = ${GDRIVE_FOLDER_ID}
+EOF
 
-if [ -n "$ASSET_URL" ]; then
+echo "[WORLD] Checking for world backup on Google Drive..."
+
+# Check if world.tar.gz exists on drive
+if rclone ls gdrive: --include "world.tar.gz" 2>/dev/null | grep -q "world.tar.gz"; then
     echo "[WORLD] Found world backup, downloading..."
-    curl -L -H "Authorization: token ${GITHUB_TOKEN}" \
-        -H "Accept: application/octet-stream" \
-        -o /tmp/world.tar.gz \
-        "$ASSET_URL"
-
+    rclone copy gdrive:world.tar.gz /tmp/ --progress
+    
     if [ -f /tmp/world.tar.gz ] && [ $(stat -c%s /tmp/world.tar.gz) -gt 1000 ]; then
         echo "[WORLD] Extracting world..."
         cd server-run
         tar xzf /tmp/world.tar.gz
         cd ..
+        rm /tmp/world.tar.gz
         echo "[WORLD] World loaded successfully!"
     else
         echo "[WORLD] Download failed or file too small, starting fresh."
     fi
 else
-    echo "[WORLD] No world backup found. Starting with fresh world."
+    echo "[WORLD] No world backup found on Drive. Starting with fresh world."
 fi
