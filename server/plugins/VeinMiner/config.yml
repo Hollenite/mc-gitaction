@@ -1,0 +1,81 @@
+# VeinMiner Configuration
+# Plugin developed by DestenyLP
+# Version: 2.1
+
+# ----------------------------------------------
+# The worlds, that the VeinMiner plugin should listen to.
+# ----------------------------------------------
+Worlds:
+- world
+- world_nether
+# ----------------------------------------------
+# The blocks, that the VeinMiner plugin should listen to.
+#  
+# Format: BLOCK:ToolMaterial,ToolType
+#  
+# Possible ToolMaterials:
+#  - WOOD
+#  - STONE
+#  - IRON
+#  - GOLD
+#  - DIAMOND
+#  - NETHERITE
+#
+#  
+# Possible ToolTypes: 
+#  - PICKAXE
+#  - SHOVEL
+#  - AXE
+#  - SWORD
+#  - HOE
+#
+#  
+# IMPORTANT: Do NOT use blocks like stone, they will most-likely not only destroy, but crash your server.
+# ----------------------------------------------
+VeinTypes:
+- COPPER_ORE:STONE,PICKAXE
+- DEEPSLATE_COPPER_ORE:STONE,PICKAXE
+- COAL_ORE:WOOD,PICKAXE
+- DEEPSLATE_COAL_ORE:WOOD,PICKAXE
+- EMERALD_ORE:IRON,PICKAXE
+- DEEPSLATE_EMERALD_ORE:IRON,PICKAXE
+- IRON_ORE:STONE,PICKAXE
+- DEEPSLATE_IRON_ORE:STONE,PICKAXE
+- LAPIS_ORE:IRON,PICKAXE
+- DEEPSLATE_LAPIS_ORE:IRON,PICKAXE
+- GOLD_ORE:IRON,PICKAXE
+- DEEPSLATE_GOLD_ORE:IRON,PICKAXE
+- NETHER_GOLD_ORE:IRON,PICKAXE
+- REDSTONE_ORE:IRON,PICKAXE
+- DEEPSLATE_REDSTONE_ORE:IRON,PICKAXE
+- DIAMOND_ORE:IRON,PICKAXE
+- DEEPSLATE_DIAMOND_ORE:IRON,PICKAXE
+- ANCIENT_DEBRIS:DIAMOND,PICKAXE
+- NETHER_QUARTZ_ORE:STONE,PICKAXE
+# ----------------------------------------------
+# The way, the pickaxe durability should decrement.
+#  
+# Available types:
+# DEFAULT - Every single ore in the vein will reduce the durability
+# PER_ORE - Only the ore mined of the vein will reduce the durability
+#
+# ----------------------------------------------
+Pickaxe Durability Mode: DEFAULT
+# ----------------------------------------------
+# If set to false, the plugin will search for the other VeinTypes too.
+# ----------------------------------------------
+Only Mine VeinType: true
+# ----------------------------------------------
+# If set to false, the plugin will only start working, when the player sneaks.
+# ----------------------------------------------
+Activate VeinMiner Always: false
+# ----------------------------------------------
+# The Plugin will directly drop the smelted variant of that block.
+# ----------------------------------------------
+Smelt When Mined:
+  enabled: false
+  drop-xp: true
+# ----------------------------------------------
+# if true, the mined VeinType will be added to the players inventory directly.
+# ----------------------------------------------
+Directly In Inventory: false

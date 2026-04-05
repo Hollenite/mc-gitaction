@@ -57,6 +57,8 @@ jobs:
           cp server/server.properties server-run/
           cp server/bukkit.yml server-run/
           cp server/spigot.yml server-run/
+          # Copy plugins (JARs + default configs)
+          cp -r server/plugins server-run/
 
       - name: Download world from Google Drive
         run: |
