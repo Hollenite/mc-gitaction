@@ -76,9 +76,6 @@ jobs:
 
       - name: Start Minecraft Server
         run: |
-          chmod +x scripts/notify.sh scripts/monitor.sh scripts/world-save.sh
-          source scripts/notify.sh
-
           cd server-run
 
           java -Xms512M -Xmx5G \
@@ -105,20 +102,8 @@ jobs:
 
           cd ..
 
-          # Wait for server to finish loading
-          echo "Waiting for server to start..."
-          for i in $(seq 1 120); do
-            if [ -f server-run/logs/latest.log ] && grep -q "Done (" server-run/logs/latest.log 2>/dev/null; then
-              DONE_LINE=$(grep "Done (" server-run/logs/latest.log)
-              echo "$DONE_LINE"
-              send_embed "✅ Server is ONLINE!" "Server loaded successfully.\n\n🌐 **Connect via your playit.gg address**\n👥 Players: 0/10\n🎮 Gamemode: Survival\n⛏️ Version: Paper 1.21.1" 65280
-              break
-            fi
-            sleep 2
-          done
-
-          # Run the monitoring loop
-          bash scripts/monitor.sh
+          echo "Server started (PID: $MC_PID). Launching monitor..."
+          python3 scripts/monitor.py
 
       - name: Save world on exit
         if: always()

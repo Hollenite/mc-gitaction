@@ -13,6 +13,7 @@ GITHUB_REPO = os.environ.get("GITHUB_REPO", "Hollenite/mc-gitaction")
 GUILD_ID = int(os.environ.get("DISCORD_GUILD_ID", "0"))
 CHANNEL_ID = int(os.environ.get("DISCORD_CHANNEL_ID", "0"))
 PLAYIT_ADDRESS = os.environ.get("PLAYIT_ADDRESS", "wiring-funding.gl.joinmc.link")
+CMD_PREFIX = "RCON::"
 
 # ─── Bot Setup ─────────────────────────────────────────────
 intents = discord.Intents.default()
@@ -40,6 +41,11 @@ class MCBot(discord.Client):
             )
         )
 
+    async def close(self):
+        if self.session:
+            await self.session.close()
+        await super().close()
+
 
 bot = MCBot()
 
@@ -47,7 +53,7 @@ bot = MCBot()
 # ─── Helper Functions ──────────────────────────────────────
 
 async def get_workflow_status():
-    """Check if any minecraft workflow is currently running"""
+    """Check if any minecraft workflow is currently running."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status=in_progress"
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
@@ -57,7 +63,6 @@ async def get_workflow_status():
         if resp.status == 200:
             data = await resp.json()
             runs = data.get("workflow_runs", [])
-            # Filter for our minecraft workflow
             mc_runs = [r for r in runs if "minecraft" in r.get("name", "").lower()]
             if mc_runs:
                 run = mc_runs[0]
@@ -71,7 +76,7 @@ async def get_workflow_status():
 
 
 async def trigger_workflow():
-    """Trigger the minecraft server workflow"""
+    """Trigger the minecraft server workflow."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/minecraft.yml/dispatches"
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
@@ -83,7 +88,7 @@ async def trigger_workflow():
 
 
 async def cancel_workflow(run_id):
-    """Cancel a running workflow"""
+    """Cancel a running workflow."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}/cancel"
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
@@ -93,14 +98,22 @@ async def cancel_workflow(run_id):
         return resp.status == 202
 
 
-def make_embed(title, description, color=0x3498db, fields=None):
+async def get_recent_channel_messages(channel, limit=20):
+    """Get recent messages in the channel to find monitor updates."""
+    messages = []
+    async for msg in channel.history(limit=limit):
+        messages.append(msg)
+    return messages
+
+
+def make_embed(title, description, color=0x3498db, fields=None, footer=None):
     embed = discord.Embed(
         title=title,
         description=description,
         color=color,
         timestamp=datetime.now(timezone.utc)
     )
-    embed.set_footer(text="MC Server Bot")
+    embed.set_footer(text=footer or "MC Server Bot")
     if fields:
         for name, value, inline in fields:
             embed.add_field(name=name, value=value, inline=inline)
@@ -113,19 +126,31 @@ def make_embed(title, description, color=0x3498db, fields=None):
 async def start_server(interaction: discord.Interaction):
     await interaction.response.defer()
 
-    # Check if already running
     status = await get_workflow_status()
     if status["running"]:
         started = status.get("started_at", "unknown")
+        try:
+            start_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+            delta = datetime.now(timezone.utc) - start_dt
+            h, r = divmod(int(delta.total_seconds()), 3600)
+            m, s = divmod(r, 60)
+            uptime = f"{h}h {m}m {s}s"
+        except Exception:
+            uptime = "Unknown"
+
         embed = make_embed(
             "⚠️ Server Already Running",
-            f"The server is already online!\n\n🌐 **IP:** `{PLAYIT_ADDRESS}`\n⏱️ Started: {started}",
-            color=0xf39c12
+            f"The server is already online!",
+            color=0xf39c12,
+            fields=[
+                ("🌐 IP", f"`{PLAYIT_ADDRESS}`", False),
+                ("⏱️ Uptime", uptime, True),
+                ("🔗 Actions", f"[View Logs]({status.get('url', '#')})", True),
+            ]
         )
         await interaction.followup.send(embed=embed)
         return
 
-    # Trigger the workflow
     success = await trigger_workflow()
     if success:
         embed = make_embed(
@@ -136,22 +161,26 @@ async def start_server(interaction: discord.Interaction):
             "You'll receive a notification when it's ready!",
             color=0x2ecc71,
             fields=[
-                ("Version", "Paper 1.21.1", True),
-                ("Max Players", "10", True),
-                ("Auto-Shutdown", "10 min empty", True),
+                ("⛏️ Version", "Paper 1.21.1", True),
+                ("👥 Max Players", "10", True),
+                ("🔌 Auto-Shutdown", "10 min if empty", True),
+                ("🎮 Gamemode", "Survival", True),
+                ("⏱️ Max Runtime", "5.5 hours", True),
+                ("💾 World", "Auto-saved to Drive", True),
             ]
         )
         await interaction.followup.send(embed=embed)
     else:
         embed = make_embed(
             "❌ Failed to Start",
-            "Could not trigger the server. Check GitHub Actions permissions.",
+            "Could not trigger the server workflow.\n"
+            "Check GitHub Actions permissions or try again.",
             color=0xe74c3c
         )
         await interaction.followup.send(embed=embed)
 
 
-@bot.tree.command(name="stop", description="🔴 Stop the Minecraft server")
+@bot.tree.command(name="stop", description="🔴 Stop the Minecraft server (saves world)")
 async def stop_server(interaction: discord.Interaction):
     await interaction.response.defer()
 
@@ -159,7 +188,7 @@ async def stop_server(interaction: discord.Interaction):
     if not status["running"]:
         embed = make_embed(
             "ℹ️ Server Not Running",
-            "The server is already offline.",
+            "The server is already offline. Use `/start` to boot it up.",
             color=0x95a5a6
         )
         await interaction.followup.send(embed=embed)
@@ -169,21 +198,25 @@ async def stop_server(interaction: discord.Interaction):
     if success:
         embed = make_embed(
             "🛑 Server Stopping",
-            "Saving world and shutting down...\n"
+            "Saving world to Google Drive and shutting down...\n"
             "The world will be preserved for next time.",
-            color=0xe74c3c
+            color=0xe74c3c,
+            fields=[
+                ("💾 World Save", "In progress...", True),
+                ("🔄 Restart", "Use `/start` when you want to play", True),
+            ]
         )
         await interaction.followup.send(embed=embed)
     else:
         embed = make_embed(
             "❌ Failed to Stop",
-            "Could not cancel the workflow. Try again or check GitHub.",
+            "Could not cancel the workflow. Try again.",
             color=0xe74c3c
         )
         await interaction.followup.send(embed=embed)
 
 
-@bot.tree.command(name="status", description="📊 Check server status")
+@bot.tree.command(name="status", description="📊 Detailed server status")
 async def server_status(interaction: discord.Interaction):
     await interaction.response.defer()
 
@@ -192,13 +225,34 @@ async def server_status(interaction: discord.Interaction):
     if status["running"]:
         started_at = status.get("started_at", "")
         uptime_str = "Unknown"
+        time_left = "Unknown"
         if started_at:
             try:
                 start_dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
                 delta = datetime.now(timezone.utc) - start_dt
-                hours, remainder = divmod(int(delta.total_seconds()), 3600)
-                minutes, seconds = divmod(remainder, 60)
-                uptime_str = f"{hours}h {minutes}m {seconds}s"
+                elapsed = int(delta.total_seconds())
+                h, r = divmod(elapsed, 3600)
+                m, s = divmod(r, 60)
+                uptime_str = f"{h}h {m}m {s}s"
+                remaining = max(0, 19800 - elapsed)
+                rh, rr = divmod(remaining, 3600)
+                rm, rs = divmod(rr, 60)
+                time_left = f"{rh}h {rm}m"
+            except Exception:
+                pass
+
+        # Try to find player info from recent monitor messages
+        player_info = "Use `/players` for live count"
+        channel = bot.get_channel(CHANNEL_ID)
+        if channel:
+            try:
+                async for msg in channel.history(limit=15):
+                    if msg.author.id == bot.user.id and msg.embeds:
+                        for emb in msg.embeds:
+                            if emb.title and ("joined" in emb.title or "left" in emb.title):
+                                if emb.description:
+                                    player_info = emb.description
+                                break
             except Exception:
                 pass
 
@@ -207,23 +261,77 @@ async def server_status(interaction: discord.Interaction):
             f"The Minecraft server is running!",
             color=0x2ecc71,
             fields=[
-                ("IP", f"`{PLAYIT_ADDRESS}`", False),
-                ("Version", "Paper 1.21.1", True),
-                ("Uptime", uptime_str, True),
-                ("Max Runtime", "5.5 hours", True),
-                ("Auto-Shutdown", "10 min if empty", True),
-                ("Actions Run", f"[View Logs]({status.get('url', '#')})", True),
-            ]
+                ("🌐 IP", f"`{PLAYIT_ADDRESS}`", False),
+                ("👥 Players", player_info, False),
+                ("⛏️ Version", "Paper 1.21.1", True),
+                ("⏱️ Uptime", uptime_str, True),
+                ("⏰ Time Left", time_left, True),
+                ("🎮 Gamemode", "Survival", True),
+                ("🔌 Auto-Shutdown", "10 min if empty", True),
+                ("💾 World Backup", "Google Drive", True),
+                ("🔗 Logs", f"[Actions]({status.get('url', '#')})", True),
+            ],
+            footer=f"Server ID: {status.get('run_id', 'N/A')}"
         )
     else:
         embed = make_embed(
             "🔴 Server is OFFLINE",
-            "Use `/start` to boot up the server!\n"
-            f"🌐 **IP (when online):** `{PLAYIT_ADDRESS}`",
-            color=0xe74c3c
+            f"Use `/start` to boot up the server!\n\n"
+            f"🌐 **IP (when online):** `{PLAYIT_ADDRESS}`\n"
+            f"⛏️ **Version:** Paper 1.21.1\n"
+            f"🎮 **Gamemode:** Survival\n"
+            f"💾 **World:** Saved on Google Drive",
+            color=0xe74c3c,
+            fields=[
+                ("How to Play", "1. Type `/start`\n2. Wait ~2 min\n3. Connect to the IP above", False),
+            ]
         )
 
     await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="cmd", description="🔧 Execute a server console command")
+@app_commands.describe(command="The Minecraft command to execute (e.g., 'give Steve diamond 64')")
+async def run_command(interaction: discord.Interaction, command: str):
+    await interaction.response.defer()
+
+    # Check if server is running
+    status = await get_workflow_status()
+    if not status["running"]:
+        embed = make_embed(
+            "❌ Server Offline",
+            "Cannot run commands — the server is not running.\nUse `/start` first.",
+            color=0xe74c3c
+        )
+        await interaction.followup.send(embed=embed)
+        return
+
+    # Strip leading slash if user added one
+    command = command.lstrip("/")
+
+    # Send the command to the channel for the monitor to pick up
+    channel = bot.get_channel(CHANNEL_ID)
+    if channel:
+        cmd_msg = await channel.send(f"{CMD_PREFIX}{command}")
+        embed = make_embed(
+            "🔧 Command Queued",
+            f"```\n{command}\n```\n"
+            "Waiting for server to execute...\n"
+            "Response will appear as a reply below.",
+            color=0x9b59b6,
+            fields=[
+                ("⏳ Wait Time", "~10 seconds", True),
+                ("📋 Command ID", cmd_msg.id, True),
+            ]
+        )
+        await interaction.followup.send(embed=embed)
+    else:
+        embed = make_embed(
+            "❌ Error",
+            "Could not find the server channel.",
+            color=0xe74c3c
+        )
+        await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="ip", description="🌐 Get the server IP address")
@@ -231,11 +339,93 @@ async def server_ip(interaction: discord.Interaction):
     embed = make_embed(
         "🌐 Server Address",
         f"```\n{PLAYIT_ADDRESS}\n```\n"
-        "Add this in Minecraft → Multiplayer → Add Server\n\n"
-        "**Note:** The server must be running (`/start`) to connect.",
+        "**How to connect:**\n"
+        "1. Open Minecraft 1.21.1\n"
+        "2. Go to Multiplayer → Add Server\n"
+        "3. Paste the address above\n\n"
+        "⚠️ Server must be running (`/start`) to connect.",
         color=0x3498db
     )
     await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="players", description="👥 Show online players")
+async def show_players(interaction: discord.Interaction):
+    await interaction.response.defer()
+
+    status = await get_workflow_status()
+    if not status["running"]:
+        embed = make_embed(
+            "🔴 Server Offline",
+            "No players — server is not running.\nUse `/start` to boot it up.",
+            color=0x95a5a6
+        )
+        await interaction.followup.send(embed=embed)
+        return
+
+    # Find latest player info from monitor messages
+    channel = bot.get_channel(CHANNEL_ID)
+    player_list = None
+    player_count = "Unknown"
+
+    if channel:
+        try:
+            async for msg in channel.history(limit=30):
+                if msg.author.id == bot.user.id and msg.embeds:
+                    for emb in msg.embeds:
+                        if emb.title and ("joined" in emb.title or "left" in emb.title or "ONLINE" in emb.title):
+                            if emb.description and "Players online" in emb.description:
+                                player_list = emb.description
+                                break
+                            for field in (emb.fields or []):
+                                if "Players" in field.name:
+                                    player_count = field.value
+                                    break
+                if player_list:
+                    break
+        except Exception:
+            pass
+
+    if player_list:
+        embed = make_embed(
+            "👥 Online Players",
+            player_list,
+            color=0x2ecc71,
+            fields=[
+                ("🌐 IP", f"`{PLAYIT_ADDRESS}`", False),
+            ]
+        )
+    else:
+        embed = make_embed(
+            "👥 Players",
+            f"Players: {player_count}\n\n"
+            "Tip: Use `/cmd list` for real-time player info.",
+            color=0x3498db
+        )
+
+    await interaction.followup.send(embed=embed)
+
+
+@bot.tree.command(name="say", description="📢 Broadcast a message to all players in-game")
+@app_commands.describe(message="Message to broadcast")
+async def say_ingame(interaction: discord.Interaction, message: str):
+    await interaction.response.defer()
+
+    status = await get_workflow_status()
+    if not status["running"]:
+        embed = make_embed("❌ Server Offline", "Server is not running.", color=0xe74c3c)
+        await interaction.followup.send(embed=embed)
+        return
+
+    channel = bot.get_channel(CHANNEL_ID)
+    if channel:
+        await channel.send(f'{CMD_PREFIX}say [Discord] {interaction.user.display_name}: {message}')
+        embed = make_embed(
+            "📢 Message Sent",
+            f"**{interaction.user.display_name}**: {message}",
+            color=0x2ecc71
+        )
+        await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="help", description="❓ Show all commands")
@@ -245,17 +435,23 @@ async def help_cmd(interaction: discord.Interaction):
         "Control the Paper 1.21.1 server from Discord!",
         color=0x9b59b6,
         fields=[
-            ("/start", "🟢 Start the server (~2 min boot)", False),
-            ("/stop", "🔴 Stop the server (saves world)", False),
-            ("/status", "📊 Check if server is online", False),
-            ("/ip", "🌐 Get the server IP address", False),
-            ("/help", "❓ Show this help message", False),
+            ("🟢 /start", "Boot up the server (~2 min)", False),
+            ("🔴 /stop", "Save world and shut down", False),
+            ("📊 /status", "Detailed server status", False),
+            ("👥 /players", "Show online players", False),
+            ("🌐 /ip", "Get the server IP address", False),
+            ("🔧 /cmd", "Run a console command (e.g., `/cmd give Steve diamond 64`)", False),
+            ("📢 /say", "Broadcast a message to in-game players", False),
+            ("❓ /help", "Show this help message", False),
         ]
     )
     embed.add_field(
-        name="ℹ️ Auto-Shutdown",
-        value="Server shuts down after **10 minutes** with no players.\n"
-              "Max runtime per session: **5.5 hours**.",
+        name="━━━ ℹ️ Server Info ━━━",
+        value=f"🌐 IP: `{PLAYIT_ADDRESS}`\n"
+              "⛏️ Version: Paper 1.21.1\n"
+              "🔌 Auto-shutdown: 10 min with no players\n"
+              "⏱️ Max runtime: 5.5 hours per session\n"
+              "💾 World: Auto-saved to Google Drive",
         inline=False
     )
     await interaction.response.send_message(embed=embed)
