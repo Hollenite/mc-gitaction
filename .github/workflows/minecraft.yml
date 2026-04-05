@@ -1,0 +1,130 @@
+name: Minecraft Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'start'
+        type: choice
+        options:
+          - start
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  run-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      PLAYIT_SECRET: ${{ secrets.PLAYIT_SECRET }}
+      REPO: ${{ github.repository }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Send starting notification
+        run: |
+          chmod +x scripts/notify.sh
+          source scripts/notify.sh
+          send_embed "⏳ Server Starting..." "Downloading Paper 1.21.1 and loading world..." 16776960
+
+      - name: Download Paper 1.21.1
+        run: |
+          mkdir -p server-run
+          curl -o server-run/paper.jar \
+            "https://api.papermc.io/v2/projects/paper/versions/1.21.1/builds/133/downloads/paper-1.21.1-133.jar"
+          echo "eula=true" > server-run/eula.txt
+          cp server/server.properties server-run/
+          cp server/bukkit.yml server-run/
+          cp server/spigot.yml server-run/
+
+      - name: Download world from GitHub Release
+        run: |
+          chmod +x scripts/world-load.sh
+          bash scripts/world-load.sh
+
+      - name: Setup playit.gg tunnel
+        run: |
+          curl -L -o playit "https://github.com/playit-cloud/playit-agent/releases/download/v0.17.1/playit-linux-amd64"
+          chmod +x playit
+          # Start playit in background
+          ./playit --secret "$PLAYIT_SECRET" &
+          echo $! > /tmp/playit.pid
+          sleep 10
+          echo "[PLAYIT] Tunnel agent started"
+
+      - name: Start Minecraft Server
+        run: |
+          chmod +x scripts/notify.sh scripts/monitor.sh scripts/world-save.sh
+          source scripts/notify.sh
+
+          cd server-run
+
+          # Start Paper server in background
+          java -Xms512M -Xmx5G \
+            -XX:+UseG1GC \
+            -XX:+ParallelRefProcEnabled \
+            -XX:MaxGCPauseMillis=200 \
+            -XX:+UnlockExperimentalVMOptions \
+            -XX:+DisableExplicitGC \
+            -XX:G1NewSizePercent=30 \
+            -XX:G1MaxNewSizePercent=40 \
+            -XX:G1HeapRegionSize=8M \
+            -XX:G1ReservePercent=20 \
+            -XX:G1HeapWastePercent=5 \
+            -XX:G1MixedGCCountTarget=4 \
+            -XX:InitiatingHeapOccupancyPercent=15 \
+            -XX:G1MixedGCLiveThresholdPercent=90 \
+            -XX:G1RSetUpdatingPauseTimePercent=5 \
+            -XX:SurvivorRatio=32 \
+            -XX:+PerfDisableSharedMem \
+            -XX:MaxTenuringThreshold=1 \
+            -jar paper.jar --nogui &
+          MC_PID=$!
+          echo $MC_PID > /tmp/mc.pid
+
+          cd ..
+
+          # Wait for server to finish loading
+          echo "Waiting for server to start..."
+          for i in $(seq 1 120); do
+            if [ -f server-run/logs/latest.log ] && grep -q "Done (" server-run/logs/latest.log 2>/dev/null; then
+              DONE_LINE=$(grep "Done (" server-run/logs/latest.log)
+              echo "$DONE_LINE"
+              send_embed "✅ Server is ONLINE!" "Server loaded successfully.\n\n🌐 **Connect via your playit.gg address**\n👥 Players: 0/10\n🎮 Gamemode: Survival\n⛏️ Version: Paper 1.21.1" 65280
+              break
+            fi
+            sleep 2
+          done
+
+          # Run the monitoring loop
+          bash scripts/monitor.sh
+
+      - name: Save world on exit
+        if: always()
+        run: |
+          chmod +x scripts/world-save.sh scripts/notify.sh
+          # Try to stop server gracefully
+          if [ -f /tmp/mc.pid ] && kill -0 $(cat /tmp/mc.pid) 2>/dev/null; then
+            echo "Stopping server gracefully..."
+            # Send stop command via RCON or just kill
+            kill $(cat /tmp/mc.pid) 2>/dev/null
+            sleep 10
+          fi
+          bash scripts/world-save.sh
+          source scripts/notify.sh
+          send_embed "🔴 Server Stopped" "World has been saved. Use /start to play again." 16711680
