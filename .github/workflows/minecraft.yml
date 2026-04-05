@@ -65,23 +65,14 @@ jobs:
 
       - name: Setup playit.gg tunnel
         run: |
-          echo "[PLAYIT] Downloading playit agent..."
-          curl -L -o playit "https://github.com/playit-cloud/playit-agent/releases/download/v0.17.1/playit-linux-amd64"
-          chmod +x playit
-          ls -la playit
-          file playit
-          echo "[PLAYIT] Starting tunnel with secret key..."
-          export SECRET_KEY="$PLAYIT_SECRET"
-          ./playit > /tmp/playit.log 2>&1 &
-          echo $! > /tmp/playit.pid
-          echo "[PLAYIT] PID: $(cat /tmp/playit.pid)"
-          # Wait for tunnel to establish
+          echo "[PLAYIT] Starting tunnel via Docker..."
+          docker run -d --name playit --network host \
+            -e SECRET_KEY="$PLAYIT_SECRET" \
+            ghcr.io/playit-cloud/playit-agent:0.17
           sleep 15
-          echo "[PLAYIT] === Tunnel Log ==="
-          cat /tmp/playit.log || true
+          echo "[PLAYIT] === Docker Logs ==="
+          docker logs playit 2>&1 || true
           echo "[PLAYIT] ==================="
-          # Keep logging in background
-          tail -f /tmp/playit.log &
 
       - name: Start Minecraft Server
         run: |
