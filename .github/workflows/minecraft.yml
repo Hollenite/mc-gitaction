@@ -65,12 +65,23 @@ jobs:
 
       - name: Setup playit.gg tunnel
         run: |
+          echo "[PLAYIT] Downloading playit agent..."
           curl -L -o playit "https://github.com/playit-cloud/playit-agent/releases/download/v0.17.1/playit-linux-amd64"
           chmod +x playit
-          ./playit --secret "$PLAYIT_SECRET" &
+          ls -la playit
+          file playit
+          echo "[PLAYIT] Starting tunnel with secret key..."
+          export SECRET_KEY="$PLAYIT_SECRET"
+          ./playit > /tmp/playit.log 2>&1 &
           echo $! > /tmp/playit.pid
-          sleep 10
-          echo "[PLAYIT] Tunnel agent started"
+          echo "[PLAYIT] PID: $(cat /tmp/playit.pid)"
+          # Wait for tunnel to establish
+          sleep 15
+          echo "[PLAYIT] === Tunnel Log ==="
+          cat /tmp/playit.log || true
+          echo "[PLAYIT] ==================="
+          # Keep logging in background
+          tail -f /tmp/playit.log &
 
       - name: Start Minecraft Server
         run: |
