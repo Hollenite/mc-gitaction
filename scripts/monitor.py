@@ -114,7 +114,10 @@ class RCON:
 def discord_request(method, endpoint, body=None):
     """Make a Discord API request."""
     url = f"https://discord.com/api/v10{endpoint}"
-    headers = {"Authorization": f"Bot {DISCORD_TOKEN}"}
+    headers = {
+        "Authorization": f"Bot {DISCORD_TOKEN}",
+        "User-Agent": "DiscordBot (https://github.com/Hollenite/mc-gitaction, 1.0)",
+    }
 
     data = None
     if body is not None:
@@ -130,7 +133,7 @@ def discord_request(method, endpoint, body=None):
             return True
     except HTTPError as e:
         err_body = e.read().decode() if e.fp else ""
-        print(f"[DISCORD] HTTP {e.code} on {method} {endpoint}: {err_body[:200]}")
+        print(f"[DISCORD] HTTP {e.code} on {method} {endpoint}: {err_body[:300]}")
         return None
     except Exception as e:
         print(f"[DISCORD] Error on {method} {endpoint}: {e}")
