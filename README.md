@@ -1,6 +1,3 @@
-# Minecraft Server on GitHub Actions
-
-Paper 1.21.1 server running on GitHub Actions, controlled via Discord bot.
 
 ## Setup
 
@@ -28,8 +25,6 @@ export PLAYIT_ADDRESS="your.ply.gg:port"
 python3 bot/bot.py
 ```
 
-### 3. Initial World Upload
-Upload your world as a GitHub Release asset tagged `world-backup`.
 
 ## How It Works
 1. User types `/start` in Discord
