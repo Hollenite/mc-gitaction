@@ -243,6 +243,8 @@ class Monitor:
         self.processed = set()
         self.rcon_ok = False
         self.server_ready = False
+        self.last_rcon_attempt = 0
+        self.cmd_check_count = 0
 
     def try_rcon(self):
         if self.rcon_ok:
@@ -323,9 +325,12 @@ class Monitor:
             if etype == "ready":
                 self.server_ready = True
                 print("[MONITOR] Server ready! Connecting RCON...")
-                # Give RCON a moment
-                time.sleep(3)
-                self.try_rcon()
+                # Give RCON more time to initialize
+                for attempt in range(5):
+                    time.sleep(3)
+                    if self.try_rcon():
+                        break
+                    print(f"[RCON] Attempt {attempt+1}/5 failed, retrying...")
 
                 count, maxp = self.rcon_player_count()
                 tps = self.get_tps()
@@ -384,16 +389,31 @@ class Monitor:
 
     def check_commands(self):
         """Poll Discord channel for RCON:: commands and execute them."""
+        self.cmd_check_count += 1
+
+        # Try reconnecting RCON if not connected (every 30 seconds)
         if not self.rcon_ok:
-            return
+            now = time.time()
+            if now - self.last_rcon_attempt >= 30:
+                self.last_rcon_attempt = now
+                print("[CMD] RCON not connected, attempting reconnect...")
+                self.try_rcon()
+            if not self.rcon_ok:
+                return
+
+        # Log every 6th check (~60 seconds) to confirm monitor is alive
+        if self.cmd_check_count % 6 == 0:
+            print(f"[CMD] Polling Discord... (check #{self.cmd_check_count}, RCON: {'OK' if self.rcon_ok else 'DOWN'})")
 
         try:
             messages = get_recent_messages(10)
         except Exception as e:
             print(f"[CMD] Failed to fetch messages: {e}")
+            traceback.print_exc()
             return
 
         if not messages:
+            print("[CMD] No messages returned from Discord API")
             return
 
         for msg in messages:
@@ -410,25 +430,29 @@ class Monitor:
                 continue
 
             self.processed.add(msg_id)
-            print(f"[CMD] Found command: '{cmd}' (msg {msg_id})")
+            print(f"[CMD] >>> Executing: '{cmd}' (msg {msg_id})")
 
             # Execute via RCON
             try:
                 result = self.rcon.command(cmd)
                 if result is not None:
-                    result = re.sub(r"§.", "", result)  # strip color codes
+                    result = re.sub(r"§.", "", result)
                 else:
                     result = "(no response)"
             except Exception as e:
                 result = f"Error: {e}"
+                self.rcon_ok = False  # Mark RCON as down
+                print(f"[CMD] RCON error, marking as disconnected")
 
-            print(f"[CMD] Result: {result}")
+            print(f"[CMD] <<< Result: {result}")
 
             # Reply in Discord
             try:
                 reply_to(msg_id, f"```\n> {cmd}\n{result}\n```")
+                print(f"[CMD] Replied to message {msg_id}")
             except Exception as e:
                 print(f"[CMD] Failed to reply: {e}")
+                traceback.print_exc()
 
             # Add ✅ reaction
             try:
