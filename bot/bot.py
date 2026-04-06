@@ -98,12 +98,27 @@ async def cancel_workflow(run_id):
         return resp.status == 202
 
 
-async def get_recent_channel_messages(channel, limit=20):
-    """Get recent messages in the channel to find monitor updates."""
-    messages = []
-    async for msg in channel.history(limit=limit):
-        messages.append(msg)
-    return messages
+async def is_shutting_down():
+    """Check recent Discord messages for shutdown indicators."""
+    channel = bot.get_channel(CHANNEL_ID)
+    if not channel:
+        return False
+    try:
+        shutdown_keywords = ["Auto-Shutdown", "Server Stopping", "Runtime Limit",
+                            "Server Crashed", "Server Stopped", "Saving world"]
+        async for msg in channel.history(limit=8):
+            if msg.author.id != bot.user.id:
+                continue
+            # Check embeds
+            for emb in msg.embeds:
+                if emb.title and any(kw in emb.title for kw in shutdown_keywords):
+                    return True
+            # Check plain messages
+            if any(kw.lower() in msg.content.lower() for kw in shutdown_keywords):
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def make_embed(title, description, color=0x3498db, fields=None, footer=None):
@@ -128,6 +143,24 @@ async def start_server(interaction: discord.Interaction):
 
     status = await get_workflow_status()
     if status["running"]:
+        # Check if the server is actually shutting down
+        shutting_down = await is_shutting_down()
+
+        if shutting_down:
+            embed = make_embed(
+                "⏳ Server is Closing",
+                "The server is currently shutting down and saving the world.\n\n"
+                "Please wait a moment and try `/start` again once it's fully stopped.",
+                color=0xe67e22,
+                fields=[
+                    ("💾 Status", "Saving world to Google Drive...", True),
+                    ("⏱️ Wait", "~2-3 minutes", True),
+                    ("🔗 Logs", f"[View Progress]({status.get('url', '#')})", True),
+                ]
+            )
+            await interaction.followup.send(embed=embed)
+            return
+
         started = status.get("started_at", "unknown")
         try:
             start_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
