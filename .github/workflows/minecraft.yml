@@ -11,6 +11,10 @@ on:
         options:
           - start
 
+concurrency:
+  group: minecraft-server
+  cancel-in-progress: false
+
 permissions:
   contents: write
   actions: write
