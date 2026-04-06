@@ -1,94 +1,207 @@
 #!/usr/bin/env python3
-"""Upload/update world.tar.gz on Google Drive using service account.
-Updates the EXISTING file (owned by user) so no quota issues."""
+"""Google Drive helper — two-file swap for safe world backups.
+
+Files on Drive:
+  world.tar.gz        = latest save (loaded first)
+  world_backup.tar.gz = previous save (fallback if latest is corrupt)
+
+Save flow:
+  1. Verify new tar locally (gzip integrity check)
+  2. Upload new tar → UPDATE world_backup.tar.gz (staging)
+  3. Swap names: world.tar.gz ↔ world_backup.tar.gz
+  Result: new data is now "world.tar.gz", old data is now "world_backup.tar.gz"
+
+Load flow:
+  1. Download world.tar.gz → verify → use if valid
+  2. If corrupt → download world_backup.tar.gz → verify → use as fallback
+"""
 
 import json
 import os
 import sys
+import subprocess
 
-# Install deps if needed
 try:
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload
+    from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 except ImportError:
-    os.system("pip install google-api-python-client google-auth -q")
+    os.system("pip install -q google-api-python-client google-auth")
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload
+    from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
+PRIMARY   = "world.tar.gz"
+BACKUP    = "world_backup.tar.gz"
+
 
 def get_service():
-    """Create Drive API service from env vars."""
     sa_json = os.environ.get("GDRIVE_SERVICE_ACCOUNT_JSON", "")
-    if not sa_json:
-        # Try file
-        sa_file = os.environ.get("GDRIVE_SA_FILE", "/tmp/sa-key.json")
-        creds = service_account.Credentials.from_service_account_file(sa_file, scopes=SCOPES)
+    if sa_json:
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(sa_json), scopes=SCOPES)
     else:
-        sa_info = json.loads(sa_json)
-        creds = service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+        sa_file = os.environ.get("GDRIVE_SA_FILE", "/tmp/sa-key.json")
+        creds = service_account.Credentials.from_service_account_file(
+            sa_file, scopes=SCOPES)
     return build('drive', 'v3', credentials=creds)
 
-def find_file(service, folder_id, filename):
-    """Find a file by name in a folder."""
-    results = service.files().list(
-        q=f"'{folder_id}' in parents and name='{filename}' and trashed=false",
-        fields="files(id, name, size)",
+
+def find_file(service, folder_id, name):
+    """Find a file by name in folder. Returns {id, name, size} or None."""
+    r = service.files().list(
+        q=f"'{folder_id}' in parents and name='{name}' and trashed=false",
+        fields="files(id, name, size, modifiedTime)",
         supportsAllDrives=True,
         includeItemsFromAllDrives=True
     ).execute()
-    files = results.get('files', [])
+    files = r.get('files', [])
     return files[0] if files else None
 
-def download_file(service, file_id, dest_path):
-    """Download a file from Drive."""
-    from googleapiclient.http import MediaIoBaseDownload
+
+def download_file(service, file_id, dest):
+    """Download a file by ID."""
     import io
     request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
-    with open(dest_path, 'wb') as f:
-        downloader = MediaIoBaseDownload(f, request, chunksize=50*1024*1024)
+    with open(dest, 'wb') as f:
+        dl = MediaIoBaseDownload(f, request, chunksize=50*1024*1024)
         done = False
         while not done:
-            status, done = downloader.next_chunk()
+            status, done = dl.next_chunk()
             if status:
                 print(f"  Download: {int(status.progress() * 100)}%")
-    print(f"  Downloaded to {dest_path}")
+    print(f"  Downloaded to {dest}")
 
-def upload_file(service, folder_id, file_path, filename="world.tar.gz"):
-    """Upload or update a file on Drive. Updates existing to keep owner's quota."""
-    existing = find_file(service, folder_id, filename)
-    media = MediaFileUpload(file_path, mimetype='application/gzip', resumable=True, chunksize=50*1024*1024)
 
-    if existing:
-        # UPDATE existing file - keeps original owner, no quota issue
-        print(f"  Updating existing file (ID: {existing['id']})...")
-        request = service.files().update(
-            fileId=existing['id'],
-            media_body=media,
-            supportsAllDrives=True
-        )
-    else:
-        # Create new - will be owned by service account
-        print("  Creating new file (warning: owned by service account)...")
-        file_metadata = {'name': filename, 'parents': [folder_id]}
-        request = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id',
-            supportsAllDrives=True
-        )
-
+def upload_file(service, file_id, src):
+    """Update an existing file's content (preserves ownership)."""
+    media = MediaFileUpload(src, mimetype='application/gzip',
+                            resumable=True, chunksize=50*1024*1024)
+    request = service.files().update(
+        fileId=file_id, media_body=media, supportsAllDrives=True)
     response = None
     while response is None:
         status, response = request.next_chunk()
         if status:
             print(f"  Upload: {int(status.progress() * 100)}%")
+    print(f"  Upload complete (ID: {response.get('id', '?')})")
+    return True
 
-    file_id = response.get('id', existing['id'] if existing else 'unknown')
-    print(f"  Done! File ID: {file_id}")
-    return file_id
+
+def rename_file(service, file_id, new_name):
+    """Rename a file (metadata update only)."""
+    service.files().update(
+        fileId=file_id,
+        body={"name": new_name},
+        supportsAllDrives=True
+    ).execute()
+    print(f"  Renamed {file_id} → {new_name}")
+
+
+def verify_tar(path):
+    """Verify tar.gz integrity. Returns True if valid."""
+    result = subprocess.run(["gzip", "-t", path],
+                            capture_output=True, timeout=120)
+    return result.returncode == 0
+
+
+# ─── Commands ─────────────────────────────────────────────
+
+def cmd_download(folder_id, dest):
+    """Download world with fallback to backup if primary is corrupt."""
+    service = get_service()
+
+    # Try primary first
+    primary = find_file(service, folder_id, PRIMARY)
+    if primary and int(primary.get('size', 0)) > 1000:
+        print(f"[GDRIVE] Found {PRIMARY} ({int(primary['size'])/(1024*1024):.0f} MB)")
+        download_file(service, primary['id'], dest)
+
+        print("[GDRIVE] Verifying integrity...")
+        if verify_tar(dest):
+            print("[GDRIVE] ✅ Primary world is valid!")
+            return True
+        else:
+            print("[GDRIVE] ❌ Primary world is CORRUPT!")
+            os.remove(dest)
+
+    # Fallback to backup
+    print("[GDRIVE] Trying backup...")
+    backup = find_file(service, folder_id, BACKUP)
+    if backup and int(backup.get('size', 0)) > 1000:
+        print(f"[GDRIVE] Found {BACKUP} ({int(backup['size'])/(1024*1024):.0f} MB)")
+        download_file(service, backup['id'], dest)
+
+        print("[GDRIVE] Verifying backup integrity...")
+        if verify_tar(dest):
+            print("[GDRIVE] ✅ Backup world is valid! (using previous save)")
+            return True
+        else:
+            print("[GDRIVE] ❌ Backup is also corrupt! Starting fresh.")
+            os.remove(dest)
+            return False
+
+    print("[GDRIVE] No valid world found on Drive.")
+    return False
+
+
+def cmd_upload(folder_id, src):
+    """Safe upload: verify → upload to backup slot → swap names."""
+    service = get_service()
+
+    # Step 1: Verify the tar before uploading
+    print("[GDRIVE] Verifying archive before upload...")
+    if not verify_tar(src):
+        print("[GDRIVE] ❌ Local tar is corrupt! NOT uploading to protect backup.")
+        return False
+
+    size_mb = os.path.getsize(src) / (1024*1024)
+    print(f"[GDRIVE] ✅ Archive OK ({size_mb:.0f} MB)")
+
+    # Step 2: Find both files
+    primary = find_file(service, folder_id, PRIMARY)
+    backup  = find_file(service, folder_id, BACKUP)
+
+    if not primary or not backup:
+        # Fallback: if only one file exists, just update it directly
+        target = primary or backup
+        if target:
+            print(f"[GDRIVE] Only one file found ({target['name']}). Updating directly.")
+            upload_file(service, target['id'], src)
+            return True
+        print("[GDRIVE] No files found on Drive!")
+        return False
+
+    # Step 3: Upload new tar → backup slot (staging)
+    print(f"[GDRIVE] Uploading to staging ({BACKUP})...")
+    upload_file(service, backup['id'], src)
+
+    # Step 4: Swap names (backup becomes primary, old primary becomes backup)
+    print("[GDRIVE] Swapping files...")
+    # Use temp name to avoid collision
+    rename_file(service, primary['id'], "world_swapping.tar.gz")
+    rename_file(service, backup['id'],  PRIMARY)
+    rename_file(service, primary['id'], BACKUP)
+
+    print("[GDRIVE] ✅ Save complete! Files swapped successfully.")
+    print(f"  {PRIMARY} = latest save")
+    print(f"  {BACKUP}  = previous save")
+    return True
+
+
+def cmd_check(folder_id):
+    """Check if world files exist on Drive."""
+    service = get_service()
+    for name in [PRIMARY, BACKUP]:
+        f = find_file(service, folder_id, name)
+        if f:
+            size = int(f.get('size', 0)) / (1024*1024)
+            modified = f.get('modifiedTime', '?')
+            print(f"  ✅ {name}: {size:.0f} MB (modified: {modified})")
+        else:
+            print(f"  ❌ {name}: not found")
+
 
 if __name__ == "__main__":
     action = sys.argv[1] if len(sys.argv) > 1 else "check"
@@ -98,30 +211,18 @@ if __name__ == "__main__":
         print("ERROR: GDRIVE_FOLDER_ID not set")
         sys.exit(1)
 
-    service = get_service()
-
     if action == "download":
         dest = sys.argv[2] if len(sys.argv) > 2 else "/tmp/world.tar.gz"
-        f = find_file(service, folder_id, "world.tar.gz")
-        if f:
-            print(f"Found world.tar.gz ({int(f.get('size', 0))/(1024*1024):.0f} MB)")
-            download_file(service, f['id'], dest)
-        else:
-            print("No world.tar.gz found on Drive")
-            sys.exit(1)
+        success = cmd_download(folder_id, dest)
+        sys.exit(0 if success else 1)
 
     elif action == "upload":
         src = sys.argv[2] if len(sys.argv) > 2 else "/tmp/world.tar.gz"
         if not os.path.exists(src):
             print(f"ERROR: {src} not found")
             sys.exit(1)
-        size_mb = os.path.getsize(src) / (1024*1024)
-        print(f"Uploading {src} ({size_mb:.0f} MB)...")
-        upload_file(service, folder_id, src)
+        success = cmd_upload(folder_id, src)
+        sys.exit(0 if success else 1)
 
     elif action == "check":
-        f = find_file(service, folder_id, "world.tar.gz")
-        if f:
-            print(f"✅ world.tar.gz exists ({int(f.get('size', 0))/(1024*1024):.0f} MB)")
-        else:
-            print("❌ world.tar.gz not found")
+        cmd_check(folder_id)
