@@ -4,10 +4,10 @@
 echo "[WORLD] Saving world..."
 echo "$GDRIVE_SERVICE_ACCOUNT_JSON" > /tmp/sa-key.json
 
-# Create tar from world folders
+# Create tar from all world folders and plugin data
 cd server-run
-tar czf /tmp/world.tar.gz world/ world_nether/ world_the_end/ 2>/dev/null || \
-tar czf /tmp/world.tar.gz world/ 2>/dev/null
+# Dynamically find directories starting with 'world' and include 'plugins' (excluding jars)
+tar czf /tmp/world.tar.gz world* plugins/ --exclude="*.jar" 2>/dev/null
 cd ..
 
 FILESIZE=$(stat -c%s /tmp/world.tar.gz 2>/dev/null || echo "0")
