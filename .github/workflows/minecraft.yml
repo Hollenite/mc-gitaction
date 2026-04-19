@@ -61,6 +61,9 @@ jobs:
           cp server/server.properties server-run/
           cp server/bukkit.yml server-run/
           cp server/spigot.yml server-run/
+          # Copy Paper/Global configs
+          mkdir -p server-run/config
+          cp -r server/config/* server-run/config/ 2>/dev/null || true
           # Copy plugins (JARs + default configs)
           cp -r server/plugins server-run/
 

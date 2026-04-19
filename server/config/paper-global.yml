@@ -1,0 +1,4 @@
+# Paper Global Configuration
+# Enabling piston duplication for TNT/carpet/rail machines
+unsupported-settings:
+  allow-piston-duplication: true
