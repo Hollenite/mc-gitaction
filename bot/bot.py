@@ -194,7 +194,7 @@ async def start_server(interaction: discord.Interaction):
             "You'll receive a notification when it's ready!",
             color=0x2ecc71,
             fields=[
-                ("⛏️ Version", "Paper 1.21.1", True),
+                ("⛏️ Version", "Paper 1.21.11", True),
                 ("👥 Max Players", "10", True),
                 ("🔌 Auto-Shutdown", "10 min if empty", True),
                 ("🎮 Gamemode", "Survival", True),
@@ -296,7 +296,7 @@ async def server_status(interaction: discord.Interaction):
             fields=[
                 ("🌐 IP", f"`{PLAYIT_ADDRESS}`", False),
                 ("👥 Players", player_info, False),
-                ("⛏️ Version", "Paper 1.21.1", True),
+                ("⛏️ Version", "Paper 1.21.11", True),
                 ("⏱️ Uptime", uptime_str, True),
                 ("⏰ Time Left", time_left, True),
                 ("🎮 Gamemode", "Survival", True),
@@ -311,7 +311,7 @@ async def server_status(interaction: discord.Interaction):
             "🔴 Server is OFFLINE",
             f"Use `/start` to boot up the server!\n\n"
             f"🌐 **IP (when online):** `{PLAYIT_ADDRESS}`\n"
-            f"⛏️ **Version:** Paper 1.21.1\n"
+            f"⛏️ **Version:** Paper 1.21.11\n"
             f"🎮 **Gamemode:** Survival\n"
             f"💾 **World:** Saved on Google Drive",
             color=0xe74c3c,
@@ -373,7 +373,7 @@ async def server_ip(interaction: discord.Interaction):
         "🌐 Server Address",
         f"```\n{PLAYIT_ADDRESS}\n```\n"
         "**How to connect:**\n"
-        "1. Open Minecraft 1.21.1\n"
+        "1. Open Minecraft 1.21.11\n"
         "2. Go to Multiplayer → Add Server\n"
         "3. Paste the address above\n\n"
         "⚠️ Server must be running (`/start`) to connect.",
@@ -465,7 +465,7 @@ async def say_ingame(interaction: discord.Interaction, message: str):
 async def help_cmd(interaction: discord.Interaction):
     embed = make_embed(
         "⛏️ Minecraft Server Bot",
-        "Control the Paper 1.21.1 server from Discord!",
+        "Control the Paper 1.21.11 server from Discord!",
         color=0x9b59b6,
         fields=[
             ("🟢 /start", "Boot up the server (~2 min)", False),
@@ -481,7 +481,7 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(
         name="━━━ ℹ️ Server Info ━━━",
         value=f"🌐 IP: `{PLAYIT_ADDRESS}`\n"
-              "⛏️ Version: Paper 1.21.1\n"
+              "⛏️ Version: Paper 1.21.11\n"
               "🔌 Auto-shutdown: 10 min with no players\n"
               "⏱️ Max runtime: 5.5 hours per session\n"
               "💾 World: Auto-saved to Google Drive",

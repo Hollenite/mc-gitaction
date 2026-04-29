@@ -342,7 +342,7 @@ class Monitor:
                 fields = [
                     ("🌐 IP", "`wiring-funding.gl.joinmc.link`", False),
                     ("👥 Players", f"{count}/{maxp}", True),
-                    ("⛏️ Version", "Paper 1.21.1", True),
+                    ("⛏️ Version", "Paper 1.21.11", True),
                     ("🎮 Gamemode", "Survival", True),
                 ]
                 if tps:

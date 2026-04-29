@@ -50,13 +50,13 @@ jobs:
         run: |
           chmod +x scripts/notify.sh
           source scripts/notify.sh
-          send_embed "⏳ Server Starting..." "Downloading Paper 1.21.1 and loading world..." 16776960
+          send_embed "⏳ Server Starting..." "Downloading Paper 1.21.11 and loading world..." 16776960
 
-      - name: Download Paper 1.21.1
+      - name: Download Paper 1.21.11
         run: |
           mkdir -p server-run
           curl -o server-run/paper.jar \
-            "https://api.papermc.io/v2/projects/paper/versions/1.21.1/builds/133/downloads/paper-1.21.1-133.jar"
+            "https://api.papermc.io/v2/projects/paper/versions/1.21.11/builds/69/downloads/paper-1.21.11-69.jar"
           echo "eula=true" > server-run/eula.txt
           cp server/server.properties server-run/
           cp server/bukkit.yml server-run/
